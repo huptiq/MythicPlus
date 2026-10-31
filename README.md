@@ -1,6 +1,10 @@
-## Mythic+ Installation & Customization Guide on YouTube
-
-[![▶️ Watch the full Mythic+ Installation & Customization Guide on YouTube](https://img.youtube.com/vi/24C6Ppk8hkA/0.jpg)](https://youtu.be/24C6Ppk8hkA)
+> ## 🚧 Under Development
+>
+> This project is currently being reworked. The code base is being restructured from a few large scripts into small, focused modules with a lightweight framework, so that further changes, custom content and new features are much easier to make.
+>
+> The rework is driven by the recent progress in the WoW modding community: new tools and possibilities made it worth rebuilding the foundation of this feature instead of continuing to extend the old single-file version.
+>
+> Expect ongoing changes while the rework is in progress. If something breaks, please open an issue.
 
 ---
 
@@ -91,32 +95,67 @@ Features include:
 
 ## How to Customize
 
-### Loot Configuration
+### Project Structure
 
-#### Basic Reward Types
-In `Mythic_Server.lua`, find the `MythicRewardConfig` section:
+The script is split into small modules. Eluna loads them in folder order (`1_` first, `7_` last), so you can open the one file you need and leave the rest untouched.
+
+```
+MythicPlus/
+├── 1_Framework/   Mythic_Framework.lua         shared helpers (messages, group loops, brackets, locale)
+├── 2_Config/      Mythic_Config.lua            server settings (IDs, rewards, brackets, penalties)
+│                  Mythic_Shared_Dungeons.lua   dungeon list (server + client)
+│                  Mythic_Shared_Affixes.lua    affix list (server + client)
+│                  Mythic_Shared_Rules.lua      death limit and affix count per tier (server + client)
+├── 3_Locale/      Items / Dungeons / UI translations
+├── 4_Server/      one file per feature: Pedestal, Run, Progress, Rewards, Rating, Keystone,
+│                  Loot, Vault, Affix, Leaderboard, Encounters, Names, Items, Session
+├── 5_ClientCore/  client namespace, locale handling, main window and tab system
+├── 6_ClientUI/    one file per UI piece: Overview, Score, Leaderboard, Timer, Countdown,
+│                  Vault, Minimap, Keystone tooltip
+└── 7_Init/        loads data and registers all events (server) / opens the first tab (client)
+```
+
+Files named `Mythic_Shared_*.lua` are sent to the client as well, so a dungeon or affix only has to be defined once.
+
+> **Upgrading from the single-file version:** delete the old `Mythic_Server.lua`, `Mythic_Client.lua` and `Mythic_Locale.lua` before copying the new folder.
+
+### General Settings
+
+All server settings live in `2_Config/Mythic_Config.lua`:
 
 ```lua
-local MythicRewardConfig = {
+MythicPlus.Config = {
+    KeystoneItem = 900100,
+    PedestalNpc = 900001,
+    VaultGameObject = 900000,
+    CountdownSeconds = 10,
+    DeathPenalty = 10,
+    ...
+}
+```
+
+#### Basic Reward Types
+```lua
+RewardTypes = {
     pets      = true,
     mounts    = true,
     equipment = false,  -- Set to true to enable gear rewards
     spells    = false,  -- Set to true to enable spell learning
-}
+},
 ```
 
-#### Mythic+ Loot Brackets (`MYTHIC_LOOT_BRACKETS`)
-Located in `Mythic_Server.lua`, these define tier ranges for loot distribution:
+#### Mythic+ Loot Brackets (`LootBrackets`)
+These define tier ranges for loot distribution:
 
 ```lua
-local MYTHIC_LOOT_BRACKETS = {
+LootBrackets = {
     ["low_tier"] = {1, 2, 3},           -- Keystones 1-3
     ["mid_tier"] = {4, 5, 6, 7},        -- Keystones 4-7
     ["high_tier"] = {8, 9, 10, 11, 12}, -- Keystones 8-12
     ["endgame"] = {15, 16, 17, 18, 19, 20}, -- Keystones 15-20
     ["pets"] = {5, 6, 7, 8, 9},         -- Pet rewards for keystones 5-9
     ["all"] = "all"                     -- Available on all keystone levels
-}
+},
 ```
 
 **How to modify:**
@@ -124,40 +163,56 @@ local MYTHIC_LOOT_BRACKETS = {
 - Modify existing ranges: Change the numbers in the arrays
 - Use in database: Set `loot_bracket` column to your bracket name
 
-#### Vault Loot Brackets (`VAULT_LOOT_BRACKETS`)
+#### Vault Loot Brackets (`VaultLootBrackets`)
 Similar to mythic loot brackets but for weekly vault rewards:
 
 ```lua
-local VAULT_LOOT_BRACKETS = {
+VaultLootBrackets = {
     ["vault_low"] = {1, 2, 3, 4, 5},        -- Low-tier vault rewards
     ["vault_mid"] = {6, 7, 8, 9, 10},       -- Mid-tier vault rewards
     ["vault_high"] = {11, 12, 13, 14, 15},  -- High-tier vault rewards
     ["vault_legendary"] = {16, 17, 18, 19, 20}, -- Legendary vault rewards
     ["all"] = "all"                         -- Available for all vault tiers
-}
+},
 ```
 
-#### Dungeon Configuration (`MythicBosses`)
-Each dungeon's settings are defined in the `MythicBosses` table:
+### Dungeon Configuration
+Every dungeon is one entry in `2_Config/Mythic_Shared_Dungeons.lua`:
 
 ```lua
-local MythicBosses = {
-    [574] = { -- Utgarde Keep
-        bosses = {23953, 24200, 24201, 23954}, -- Boss creature IDs
-        final = 23954,                          -- Final boss ID
-        names = {"Prince Keleseth", "Skarvald the Constructor", "Dalronn the Controller", "Ingvar the Plunderer"},
-        timer = 1500,                           -- Time limit in seconds (25 minutes)
-        enemies = 45                            -- Required enemy forces (set to 0 to disable)
-    },
-    -- Add more dungeons following the same pattern
-}
+{ mapId = 574, name = "Utgarde Keep", icon = "Interface\Icons\achievement_boss_svalasorrowgrave",
+  bosses = {23953, 24200, 24201, 23954}, -- Boss creature IDs (in display order)
+  final = 23954,                         -- Final boss ID (heroic kill gives a keystone)
+  timer = 1500,                          -- Time limit in seconds (25 minutes)
+  enemies = 45 },                        -- Required enemy forces (set to 0 to disable)
 ```
 
+Optional fields for bosses that cannot be killed normally:
+- `completeOnEvade = { entry = 26533, range = 100 }` - boss counts as defeated when it evades (Mal'Ganis)
+- `completeAt = { entry = 36954, x = 5265.987, y = 1682.8047, radius = 15 }` - boss counts as defeated when the group reaches a point (Halls of Reflection)
+
 **How to add a new dungeon:**
-1. Find the map ID of your dungeon
-2. Add an entry following the pattern above
-3. Add the map ID to the `mythicDungeonIds` table
+1. Add an entry to `MythicPlus.DungeonList` (the list order is also the order in the GUI)
+2. Add a column named after the map ID to `character_mythic_rating`, e.g. ``ALTER TABLE character_mythic_rating ADD `999` int DEFAULT '0';``
+3. Add the dungeon name to `3_Locale/Mythic_Locale_Dungeons.lua`
 4. Place a Mythic Pedestal (creature ID 900001) in the dungeon
+
+### Adding a New GUI Tab
+Create a new file in `6_ClientUI/` that starts with the AIO header and registers itself:
+
+```lua
+local AIO = AIO or require("AIO")
+if AIO.AddAddon() then
+    return
+end
+
+local banner, title = MythicPlus.CreateBannerTitle(MythicPlusFrame, MythicGetText("UI", "My Tab"), 0)
+MythicPlus.RegisterTab(4, "My Tab", banner, title, { }, function()
+    AIO.Handle("AIO_Mythic", "RequestSomething")
+end)
+```
+
+Server handlers are added the same way in any server file: `function MythicPlus.Handlers.RequestSomething(player) ... end`.
 
 ### Database Tables
 
@@ -214,19 +269,20 @@ INSERT INTO world_vault_loot (itemid, loot_bracket, chancePercent, faction) VALU
 ### Weekly Systems
 
 #### Affix Configuration
-Weekly affixes are defined in the `WEEKLY_AFFIX_POOL`:
+Weekly affixes are defined in `2_Config/Mythic_Shared_Affixes.lua`. Each entry holds the server spells and the client icon and color:
 
 ```lua
-local WEEKLY_AFFIX_POOL = {
-    { spell = 8599, name = "Enrage" },
-    { spell = {48441, 61301}, name = "Rejuvenating" },
-    { spell = 871, name = "Turtling" },
+MythicPlus.Affixes = {
+    { name = "Enrage", spell = 8599, icon = "Interface\Icons\spell_nature_shamanrage", color = "|cffff0000" },
+    { name = "Rejuvenating", spell = {48441, 61301}, icon = "...", color = "|cff00ff00" },
     -- Add more affixes following this pattern
 }
 ```
 
+Add the affix name and `"<Name> Description"` to `3_Locale/Mythic_Locale_UI.lua` for the tooltip text.
+
 #### Vault Generation Schedule
-The vault system automatically generates rewards every Wednesday at 8 AM server time. This is configured in the `ScheduleVaultGeneration()` function and runs automatically on server startup.
+The vault system automatically generates rewards every Wednesday at 8 AM server time. This is configured in the `ScheduleVaultGeneration()` function in `4_Server/Mythic_Vault.lua` and runs automatically on server startup.
 
 ---
 
